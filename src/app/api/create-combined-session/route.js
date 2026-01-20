@@ -28,11 +28,12 @@ export async function POST(request) {
     const origin = request.headers.get('origin') || process.env.SUCCESS_URL || '';
     const currency = (orderData.currency || 'USD').toString().toLowerCase();
     const subscriptionObj = Array.isArray(subscription) ? subscription[0] : subscription;
-    const hasSubscription = Boolean(subscriptionObj && (subscriptionObj.total || subscriptionObj.amount));
+    const hasSubscription = Boolean(subscriptionObj && (subscriptionObj.total ?? subscriptionObj.amount));
 
     const line_items = [];
 
-    const subscriptionTotal = hasSubscription ? toCents(subscriptionObj.total ?? subscriptionObj.amount ?? 0) : 0;
+    const subscriptionDiscount = toCents(orderData.discount_total ?? 0);
+    const subscriptionTotal = hasSubscription ? Math.max(0, toCents(subscriptionObj.total ?? subscriptionObj.amount ?? 0) - subscriptionDiscount) : 0;
     const orderTotal = toCents(orderData.total);
     const oneTimeAmount = orderTotal - subscriptionTotal;
 
@@ -60,7 +61,7 @@ export async function POST(request) {
       line_items.push({
         price_data: {
           currency,
-          unit_amount: subscriptionTotal - orderData.discount,
+          unit_amount: subscriptionTotal,
           recurring: {
             interval: intervalSafe,
             interval_count: intervalCountSafe
