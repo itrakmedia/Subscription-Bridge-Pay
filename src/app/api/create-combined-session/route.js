@@ -60,7 +60,7 @@ export async function POST(request) {
       line_items.push({
         price_data: {
           currency,
-          unit_amount: subscriptionTotal,
+          unit_amount: subscriptionTotal - orderData.discount,
           recurring: {
             interval: intervalSafe,
             interval_count: intervalCountSafe
