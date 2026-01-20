@@ -12,6 +12,20 @@ const sanitizeNumber = (v) => {
 
 const toCents = (amount) => Math.round(sanitizeNumber(amount) * 100);
 
+ const getOrCreateDiscountCoupon = async (stripe, amountInCents, currency) => {
+  try {
+     const coupon = await stripe.coupons.create({
+      amount_off: amountInCents,
+      currency: currency,
+      duration: 'once',
+    });
+    return coupon.id;
+  } catch (err) {
+    console.error('Error creating discount coupon:', err);
+     return null;
+  }
+};
+
 export async function POST(request) {
   try {
     if (!process.env.STRIPE_SECRET_KEY) {
@@ -32,10 +46,13 @@ export async function POST(request) {
 
     const line_items = [];
 
-    const subscriptionDiscount = toCents(orderData.discount_total ?? 0);
-    const subscriptionTotal = hasSubscription ? Math.max(0, toCents(subscriptionObj.total ?? subscriptionObj.amount ?? 0) - subscriptionDiscount) : 0;
-    const orderTotal = toCents(orderData.total);
-    const oneTimeAmount = orderTotal - subscriptionTotal;
+     const discountAmount = toCents(orderData?.discount_total ?? 0);
+    const finalTotal = toCents(orderData.total);
+      const rawSubscriptionTotal = hasSubscription ? toCents(subscriptionObj.total ?? subscriptionObj.amount ?? 0) : 0;
+    const rawOneTimeTotal = hasSubscription ? Math.max(0, toCents(orderData.total) + discountAmount - rawSubscriptionTotal) : toCents(orderData.total) + discountAmount;
+    
+    const subscriptionTotal = Math.max(0, rawSubscriptionTotal);
+    const oneTimeAmount = Math.max(0, rawOneTimeTotal);
 
     if (oneTimeAmount > 0) {
       line_items.push({
@@ -62,6 +79,7 @@ export async function POST(request) {
         price_data: {
           currency,
           unit_amount: subscriptionTotal,
+          
           recurring: {
             interval: intervalSafe,
             interval_count: intervalCountSafe
@@ -99,6 +117,13 @@ export async function POST(request) {
       metadata: commonMetadata,
     };
 
+     if (discountAmount > 0) {
+       console.log("Creating the discount>>>>>>>>>>>>>>>>>")
+      sessionParams.discounts = [{
+        coupon: await getOrCreateDiscountCoupon(stripe, discountAmount, currency),
+      }];
+    }
+
     if (mode === 'subscription' && subscriptionObj?.id) {
       sessionParams.subscription_data = {
         metadata: {
@@ -107,8 +132,7 @@ export async function POST(request) {
       };
     }
 
-    console.log('Creating Stripe session with line_items:', JSON.stringify(line_items, null, 2));
-    const session = await stripe.checkout.sessions.create(sessionParams);
+     const session = await stripe.checkout.sessions.create(sessionParams);
 
     return NextResponse.json(session);
   } catch (err) {
